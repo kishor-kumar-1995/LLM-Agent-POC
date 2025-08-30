@@ -43,11 +43,11 @@ async function sendMessage() {
   input.value = "";
 
   try {
-    // Call your backend (Render API)
-    const res = await fetch("https://llm-agent-backend-1.onrender.com/api/", {
+    // Call your backend 2
+    const res = await fetch("https://llm-agent-backend-2.onrender.com/api/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: text })
+      body: JSON.stringify({ question: text })
     });
 
     const data = await res.json();
