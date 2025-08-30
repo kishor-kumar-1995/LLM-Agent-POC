@@ -43,7 +43,7 @@ async function sendMessage() {
   input.value = "";
 
   try {
-    // Call your backend 2
+    // Call your Render backend
     const res = await fetch("https://llm-agent-backend-2.onrender.com/api/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -51,7 +51,8 @@ async function sendMessage() {
     });
 
     const data = await res.json();
-    appendMessage("Agent", data.answer || JSON.stringify(data));
+    // Show only the assistant's answer
+    appendMessage("Agent", data.assistant || "No response from backend.");
   } catch (err) {
     showError(err.message);
   }
