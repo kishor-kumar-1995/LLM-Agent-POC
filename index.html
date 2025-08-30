@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>LLM Agent POC</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap-llm-provider@1.3.1/dist/index.umd.js"></script>
+</head>
+<body class="bg-light">
+<div class="container py-4">
+  <h2 class="mb-3">🧑‍💻 LLM Agent POC</h2>
+
+  <!-- Conversation Window -->
+  <div id="chat" class="border rounded p-3 bg-white mb-3" style="height:300px;overflow-y:auto"></div>
+
+  <!-- Input + Send -->
+  <div class="input-group mb-3">
+    <input id="userInput" type="text" class="form-control" placeholder="Type your message...">
+    <button class="btn btn-primary" onclick="sendMessage()">Send</button>
+  </div>
+
+  <!-- Alerts -->
+  <div id="alerts"></div>
+
+  <!-- Model Picker -->
+  <div id="model-picker"></div>
+</div>
+
+<script>
+// --- 1. Setup provider picker (AI Pipe / OpenAI / etc.) ---
+const provider = bootstrapLLMProvider({
+  container: document.getElementById("model-picker"),
+  defaultBaseURL: "https://aipipe.org/openrouter/v1", // AI Pipe
+  defaultModel: "openai/gpt-3.5-turbo"
+});
+
+// --- 2. Conversation state ---
+let messages = [];
+
+// --- 3. Append message to chat window ---
+function appendMessage(sender, text) {
+  const div = document.createElement("div");
+  div.innerHTML = `<b>${sender}:</b> ${text}`;
+  document.getElementById("chat").appendChild(div);
+  document.getElementById("chat").scrollTop = 9999;
+}
+
+// --- 4. Handle user input ---
+async function sendMessage() {
+  const input = document.getElementById("userInput");
+  const text = input.value.trim();
+  if (!text) return;
+  appendMessage("You", text);
+  messages.push({role:"user", content:text});
+  input.value = "";
+  await agentLoop();
+}
+
+// --- 5. Agent loop ---
+async function agentLoop() {
+  try {
+    const res = await provider.chat.completions.create({
+      model: provider.model,
+      messages,
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "google_search",
+            description: "Search Google and return snippet results",
+            parameters: { type:"object", properties:{ query:{type:"string"} }, required:["query"]}
+          }
+        },
+        {
+          type: "function",
+          function: {
+            name: "run_code",
+            description: "Execute JavaScript code safely",
+            parameters: { type:"object", properties:{ code:{type:"string"} }, required:["code"]}
+          }
+        },
+        {
+          type: "function",
+          function: {
+            name: "ai_pipe",
+            description: "Call AI Pipe proxy for flexible workflows",
+            parameters: { type:"object", properties:{ text:{type:"string"} }, required:["text"]}
+          }
+        }
+      ]
+    });
+
+    const choice = res.choices[0];
+    if (choice.message.tool_calls) {
+      for (const call of choice.message.tool_calls) {
+        let result;
+        if (call.function.name === "google_search") {
+          result = await toolGoogleSearch(JSON.parse(call.function.arguments).query);
+        } else if (call.function.name === "run_code") {
+          result = await toolRunCode(JSON.parse(call.function.arguments).code);
+        } else if (call.function.name === "ai_pipe") {
+          result = await toolAIPipe(JSON.parse(call.function.arguments).text);
+        }
+        messages.push({role:"tool", name:call.function.name, content:JSON.stringify(result)});
+      }
+      await agentLoop(); // loop again until done
+    } else {
+      const content = choice.message.content;
+      appendMessage("Agent", content);
+      messages.push({role:"assistant", content});
+    }
+  } catch (err) {
+    showError(err.message);
+  }
+}
+
+// --- 6. Tool implementations ---
+async function toolGoogleSearch(query) {
+  // Replace with your Google CSE API key + cx
+  const API_KEY = "YOUR_GOOGLE_KEY";
+  const CX = "YOUR_CX";
+  const url = `https://www.googleapis.com/customsearch/v1?q=${encodeURIComponent(query)}&key=${API_KEY}&cx=${CX}`;
+  const res = await fetch(url);
+  const data = await res.json();
+  return data.items?.map(i => ({title:i.title, link:i.link, snippet:i.snippet})) || [];
+}
+
+async function toolRunCode(code) {
+  try {
+    const iframe = document.createElement("iframe");
+    iframe.style.display="none";
+    document.body.appendChild(iframe);
+    const result = iframe.contentWindow.eval(code);
+    document.body.removeChild(iframe);
+    return {output:String(result)};
+  } catch (e) {
+    return {error:e.message};
+  }
+}
+
+async function toolAIPipe(text) {
+  const res = await fetch("https://aipipe.org/openrouter/v1/chat/completions", {
+    method:"POST",
+    headers:{
+      "Authorization":`Bearer ${provider.apiKey}`,
+      "Content-Type":"application/json"
+    },
+    body:JSON.stringify({
+      model:"openai/gpt-3.5-turbo",
+      messages:[{role:"user", content:text}]
+    })
+  });
+  const data = await res.json();
+  return data.choices[0].message.content;
+}
+
+// --- 7. Alert handler ---
+function showError(msg) {
+  const alert = `<div class="alert alert-danger alert-dismissible fade show" role="alert">
+    <strong>Error:</strong> ${msg}
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+  </div>`;
+  document.getElementById("alerts").innerHTML = alert;
+}
+</script>
+</body>
+</html>
